@@ -1,3 +1,5 @@
+// SERVER.js
+
 const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
@@ -17,6 +19,20 @@ const io = new Server(server, {
 
 const users = {};
 
+const randomColor = () => {
+  const colors = [
+    "#52c41a",
+    "#fa8c16",
+    "#722ed1",
+    "#eb2f96",
+    "#13c2c2",
+    "#2f54eb",
+    "#a0d911",
+  ];
+
+  return colors[Math.floor(Math.random() * colors.length)];
+};
+
 io.on("connection", (socket) => {
   console.log("CONNECTED:", socket.id);
 
@@ -29,19 +45,22 @@ io.on("connection", (socket) => {
       roomId,
       x: 0,
       y: 0,
+      color: randomColor(),
+      selectedNodeId: null,
     };
 
-    // existing users send to new user
     const roomUsers = Object.values(users).filter(
       (u) => u.roomId === roomId && u.id !== socket.id
     );
 
+    // send all users
     socket.emit("existing-users", roomUsers);
+
+    // send me event
+    socket.emit("me", users[socket.id]);
 
     // notify others
     socket.to(roomId).emit("user-joined", users[socket.id]);
-
-    console.log(name, "joined", roomId);
   });
 
   socket.on("cursor-move", ({ x, y }) => {
@@ -55,6 +74,33 @@ io.on("connection", (socket) => {
     socket.to(user.roomId).emit("cursor-move", user);
   });
 
+  socket.on("node-selected", ({ nodeId }) => {
+    const user = users[socket.id];
+
+    if (!user) return;
+
+    user.selectedNodeId = nodeId;
+
+    socket.to(user.roomId).emit("node-selected", {
+      userId: user.id,
+      name: user.name,
+      color: user.color,
+      nodeId,
+    });
+  });
+
+  socket.on("node-unselected", () => {
+    const user = users[socket.id];
+
+    if (!user) return;
+
+    user.selectedNodeId = null;
+
+    socket.to(user.roomId).emit("node-unselected", {
+      userId: user.id,
+    });
+  });
+
   socket.on("disconnect", () => {
     const user = users[socket.id];
 
@@ -63,8 +109,6 @@ io.on("connection", (socket) => {
     }
 
     delete users[socket.id];
-
-    console.log("DISCONNECTED:", socket.id);
   });
 });
 
