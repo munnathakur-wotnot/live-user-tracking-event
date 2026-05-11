@@ -7,6 +7,27 @@ const cors = require("cors");
 
 const app = express();
 
+const INITIAL_NODE_ID = "node_1";
+
+const INITIAL_NODES = [
+  {
+    id: INITIAL_NODE_ID,
+    type: "custom",
+    position: { x: 120, y: 120 },
+    deletable: false,
+    selectable: false,
+    data: {
+      id: INITIAL_NODE_ID,
+      inPorts: [],
+      outPorts: [],
+      connected: false,
+      title: "Start",
+      description: "description",
+      type: "start",
+    },
+  },
+];
+
 app.use(cors());
 
 const server = http.createServer(app);
@@ -16,7 +37,7 @@ const io = new Server(server, {
     origin: "*",
   },
 });
-
+console.log("Hello");
 const users = {};
 
 // nodeId -> { socketId, name, color }
@@ -24,6 +45,8 @@ const dragLocks = {};
 
 // nodeId -> { socketId, name, color }
 const menuLocks = {};
+
+const flows = {};
 
 const randomColor = () => {
   const colors = [
@@ -74,7 +97,7 @@ io.on("connection", (socket) => {
     };
 
     const roomUsers = Object.values(users).filter(
-      (u) => u.roomId === roomId && u.id !== socket.id
+      (u) => u.roomId === roomId && u.id !== socket.id,
     );
 
     socket.emit("existing-users", roomUsers);
@@ -131,7 +154,11 @@ io.on("connection", (socket) => {
     // Already locked by someone else — reject silently (client checks too)
     if (dragLocks[nodeId] && dragLocks[nodeId].socketId !== socket.id) return;
 
-    dragLocks[nodeId] = { socketId: socket.id, name: user.name, color: user.color };
+    dragLocks[nodeId] = {
+      socketId: socket.id,
+      name: user.name,
+      color: user.color,
+    };
 
     socket.to(user.roomId).emit("node-drag-start", {
       nodeId,
@@ -155,7 +182,11 @@ io.on("connection", (socket) => {
     const user = users[socket.id];
     if (!user) return;
 
-    menuLocks[nodeId] = { socketId: socket.id, name: user.name, color: user.color };
+    menuLocks[nodeId] = {
+      socketId: socket.id,
+      name: user.name,
+      color: user.color,
+    };
 
     socket.to(user.roomId).emit("node-menu-open", {
       nodeId,
@@ -173,7 +204,56 @@ io.on("connection", (socket) => {
 
     socket.to(user.roomId).emit("node-menu-close", { nodeId });
   });
+  socket.on("save-flow", ({ roomId, nodes, edges, currentId }) => {
+    let startNode = nodes.find(
+      (n) => n.id === INITIAL_NODE_ID,
+    );
+  
+    // restore if deleted
+    if (!startNode) {
+      startNode = structuredClone(INITIAL_NODES[0]);
+  
+      nodes.unshift(startNode);
+    }
+  
+    // force protected properties
+    startNode.deletable = false;
+    startNode.selectable = false;
+  
+    startNode.data = {
+      ...startNode.data,
+      id: INITIAL_NODE_ID,
+      type: "start",
+      title: "Start",
+    };
+  
+    flows[roomId] = {
+      nodes,
+      edges,
+      currentId,
+      updatedAt: Date.now(),
+    };
+  
+    socket.to(roomId).emit("flow-updated", {
+      nodes,
+      edges,
+      currentId,
+    });
+  });
 
+  // ── Get existing flow ──────────────────────────
+  socket.on("get-flow", ({ roomId }, callback) => {
+    if (!flows[roomId]) {
+      flows[roomId] = {
+        nodes: INITIAL_NODES,
+        edges: [],
+        currentId: 2,
+        updatedAt: Date.now(),
+      };
+    }
+  
+    callback(flows[roomId]);
+  });
   // ── Node data changed ────────────────────────────────────────
   socket.on("node-changed", ({ nodeId, data }) => {
     const user = users[socket.id];
@@ -186,9 +266,13 @@ io.on("connection", (socket) => {
     const user = users[socket.id];
     if (user) {
       releaseLocksForSocket(socket, user.roomId);
-      socket.to(user.roomId).emit("user-left", socket.id);
+
+      // send full user details
+      socket.to(user.roomId).emit("user-left", user);
     }
+
     delete users[socket.id];
+
     console.log("DISCONNECTED:", socket.id);
   });
 });
