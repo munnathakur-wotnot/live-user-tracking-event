@@ -12,10 +12,11 @@ const INITIAL_NODE_ID = "node_1";
 const INITIAL_NODES = [
   {
     id: INITIAL_NODE_ID,
-    type: "custom",
+    type: "action",
     position: { x: 120, y: 120 },
     deletable: false,
     selectable: false,
+    soory:false,
     data: {
       id: INITIAL_NODE_ID,
       inPorts: [],
@@ -24,6 +25,7 @@ const INITIAL_NODES = [
       title: "Start",
       description: "description",
       type: "start",
+      icon:'🚀'
     },
   },
 ];
